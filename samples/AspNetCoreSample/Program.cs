@@ -55,9 +55,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     })
     .AddCAS(options =>
     {
+        options.BackchannelTimeout = new TimeSpan(0, 10, 0);
+        options.RemoteAuthenticationTimeout = new TimeSpan(0, 10, 0);
         options.CasServerUrlBase = builder.Configuration["Authentication:CAS:ServerUrlBase"];
         options.SaveTokens = builder.Configuration.GetValue("Authentication:CAS:SaveTokens", false);
-        var protocolVersion = builder.Configuration.GetValue("Authentication:CAS:ProtocolVersion", 3);
+        var protocolVersion = builder.Configuration.GetValue("Authentication:CAS:ProtocolVersion", 2);
         if (protocolVersion != 3)
         {
             options.ServiceTicketValidator = protocolVersion switch
@@ -67,7 +69,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
                 _ => null
             };
         }
-
+    
         options.Events.OnCreatingTicket = context =>
         {
             if (context.Identity == null)
@@ -75,6 +77,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             // Map claims from assertion
             var assertion = context.Assertion;
             context.Identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, assertion.PrincipalName));
+            context.Identity.AddClaim(new Claim(ClaimTypes.Name, assertion.PrincipalName)); //This line allows you to access primary login info as User.identity.Name in cs code
             if (assertion.Attributes.TryGetValue("display_name", out var displayName))
             {
                 context.Identity.AddClaim(new Claim(ClaimTypes.Name, displayName));
@@ -99,96 +102,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             context.HandleResponse();
             return Task.CompletedTask;
         };
-    })
-    .AddOAuth(OAuthDefaults.DisplayName, options =>
-    {
-        options.CallbackPath = "/signin-oauth";
-        options.ClientId = builder.Configuration["Authentication:OAuth:ClientId"];
-        options.ClientSecret = builder.Configuration["Authentication:OAuth:ClientSecret"];
-        options.AuthorizationEndpoint = builder.Configuration["Authentication:OAuth:AuthorizationEndpoint"];
-        options.TokenEndpoint = builder.Configuration["Authentication:OAuth:TokenEndpoint"];
-        options.UserInformationEndpoint = builder.Configuration["Authentication:OAuth:UserInformationEndpoint"];
-        builder.Configuration.GetValue("Authentication:OAuth:Scope", "email")
-            .Split(" ", StringSplitOptions.RemoveEmptyEntries).ToList().ForEach(s => options.Scope.Add(s));
-        options.ClaimActions.MapJsonKey(ClaimTypes.NameIdentifier, "id");
-        options.ClaimActions.MapJsonKey(ClaimTypes.Name, "name");
-        options.ClaimActions.MapJsonKey(ClaimTypes.Email, "email");
-        options.ClaimActions.MapJsonSubKey(ClaimTypes.Name, "attributes", "display_name");
-        options.ClaimActions.MapJsonSubKey(ClaimTypes.Email, "attributes", "email");
-        options.SaveTokens = builder.Configuration.GetValue("Authentication:OAuth:SaveTokens", false);
-        options.Events.OnCreatingTicket = async context =>
-        {
-            // Get the OAuth user
-            using var request =
-                new HttpRequestMessage(HttpMethod.Get, context.Options.UserInformationEndpoint);
-            request.Headers.Accept.ParseAdd("application/json");
-            if (builder.Configuration.GetValue("Authentication:OAuth:SendAccessTokenInQuery", false))
-            {
-                request.RequestUri =
-                    new Uri(QueryHelpers.AddQueryString(request.RequestUri!.OriginalString, "access_token",
-                        context.AccessToken!));
-            }
-            else
-            {
-                request.Headers.Authorization =
-                    new AuthenticationHeaderValue("Bearer", context.AccessToken);
-            }
 
-            using var response =
-                await context.Backchannel.SendAsync(request, context.HttpContext.RequestAborted)
-                    .ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode ||
-                response.Content.Headers.ContentType?.MediaType?.StartsWith("application/json") != true)
-            {
-                throw new HttpRequestException(
-                    $"An error occurred when retrieving OAuth user information ({response.StatusCode}). Please check if the authentication information is correct.");
-            }
-
-            await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            using var json = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
-            context.RunClaimActions(json.RootElement);
-        };
-        options.Events.OnRemoteFailure = context =>
-        {
-            var failure = context.Failure;
-            if (!string.IsNullOrWhiteSpace(failure?.Message))
-            {
-                logger.Error(failure, "{Exception}", failure.Message);
-            }
-
-            context.Response.Redirect("/Account/ExternalLoginFailure");
-            context.HandleResponse();
-            return Task.CompletedTask;
-        };
-    })
-    .AddOpenIdConnect(options =>
-    {
-        options.ClientId = builder.Configuration["Authentication:OIDC:ClientId"];
-        options.ClientSecret = builder.Configuration["Authentication:OIDC:ClientSecret"];
-        options.Authority = builder.Configuration["Authentication:OIDC:Authority"];
-        options.MetadataAddress = builder.Configuration["Authentication:OIDC:MetadataAddress"];
-        options.ResponseType =
-            builder.Configuration.GetValue("Authentication:OIDC:ResponseType", OpenIdConnectResponseType.Code);
-        options.ResponseMode =
-            builder.Configuration.GetValue("Authentication:OIDC:ResponseMode", OpenIdConnectResponseMode.Query);
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-        options.Scope.Clear();
-        builder.Configuration.GetValue("Authentication:OIDC:Scope", "openid profile email")
-            .Split(" ", StringSplitOptions.RemoveEmptyEntries).ToList().ForEach(s => options.Scope.Add(s));
-        options.SaveTokens = builder.Configuration.GetValue("Authentication:OIDC:SaveTokens", false);
-        options.Events.OnRemoteFailure = context =>
-        {
-            var failure = context.Failure;
-            if (!string.IsNullOrWhiteSpace(failure?.Message))
-            {
-                logger.Error(failure, "{Exception}", failure.Message);
-            }
-
-            context.Response.Redirect("/Account/ExternalLoginFailure");
-            context.HandleResponse();
-            return Task.CompletedTask;
-        };
     });
 
 // Setup NLog for Dependency injection
@@ -210,7 +124,7 @@ app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
+app.UseCookiePolicy();
 app.MapRazorPages();
 
 try

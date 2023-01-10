@@ -47,7 +47,7 @@ namespace GSS.Authentication.CAS.AspNetCore
             var service = BuildRedirectUri(state == null || string.IsNullOrWhiteSpace(state)
                 ? Options.CallbackPath
                 : $"{Options.CallbackPath}?state={Uri.EscapeDataString(state)}");
-           // var authorizationEndpoint = $"{Options.CasServerUrlBase}/login?service={Uri.EscapeDataString(service)}";
+            //var authorizationEndpoint = $"{Options.CasServerUrlBase}/login?service={Uri.EscapeDataString(service)}";
             var authorizationEndpoint = $"{Options.CasServerUrlBase}/login?service=https://dev.connects.catalyst.harvard.edu/profiles/login/accept";
             var redirectContext = new RedirectContext<CasAuthenticationOptions>(
                 Context, Scheme, Options,

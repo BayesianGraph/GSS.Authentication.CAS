@@ -23,11 +23,9 @@ namespace GSS.Authentication.CAS.AspNetCore
 
             if (options.Backchannel == null)
             {
-#pragma warning disable CA2000 // Dispose objects before losing scope
-#pragma warning disable IDE0067 // Dispose objects before losing scope
+
                 options.Backchannel = new HttpClient(options.BackchannelHttpHandler ?? new HttpClientHandler());
-#pragma warning restore IDE0067 // Dispose objects before losing scope
-#pragma warning restore CA2000 // Dispose objects before losing scope
+
                 options.Backchannel.DefaultRequestHeaders.UserAgent.ParseAdd("ASP.NET Core CAS handler");
                 options.Backchannel.Timeout = options.BackchannelTimeout;
                 options.Backchannel.MaxResponseContentBufferSize = 1024 * 1024 * 10; // 10 MB
